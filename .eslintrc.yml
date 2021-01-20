@@ -14,7 +14,7 @@ extends:
 parser: '@typescript-eslint/parser'
 
 parserOptions:
-  project: './tsconfig.json'
+  project: './tutorial-server/tsconfig.json'
 
 plugins:
   - '@typescript-eslint'
