@@ -1,7 +1,7 @@
 import { MikroORM } from '@mikro-orm/core';
 import path from 'path';
 import Post from './entities/Post';
-import __prod__ from './constants';
+import { __prod__ } from './constants';
 import User from './entities/User';
 
 export default {

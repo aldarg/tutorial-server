@@ -11,6 +11,7 @@ import {
   Resolver,
 } from 'type-graphql';
 import argon2 from 'argon2';
+import { COOKIE_NAME } from '../constants';
 import User from '../entities/User';
 import { MyContext } from '../types';
 
@@ -43,22 +44,15 @@ class UserResponse {
 
 @Resolver()
 class UserResolver {
-  @Query(() => UserResponse)
-  async me(@Ctx() { em, req }: MyContext): Promise<UserResponse> {
+  @Query(() => User, { nullable: true })
+  async me(@Ctx() { em, req }: MyContext): Promise<User | null> {
     if (!req.session.userId) {
-      return {
-        errors: [
-          {
-            field: 'username',
-            message: 'not logged in',
-          },
-        ],
-      };
+      return null;
     }
 
     const user = await em.findOne(User, { id: req.session.userId });
 
-    return { user };
+    return user;
   }
 
   @Mutation(() => UserResponse)
@@ -146,6 +140,23 @@ class UserResolver {
     req.session.userId = user.id;
 
     return { user };
+  }
+
+  @Mutation(() => Boolean)
+  logout(@Ctx() { req, res }: MyContext): Promise<boolean> {
+    return new Promise((resolve) =>
+      req.session.destroy((err) => {
+        res.clearCookie(COOKIE_NAME);
+
+        if (err) {
+          console.log(err);
+          resolve(false);
+          return;
+        }
+
+        resolve(true);
+      })
+    );
   }
 }
 
