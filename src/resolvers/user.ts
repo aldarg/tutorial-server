@@ -30,29 +30,30 @@ class FieldError {
 @ObjectType()
 class UserResponse {
   @Field(() => [FieldError], { nullable: true })
-  errors?: FieldError[] | null;
+  // eslint-disable-next-line type-graphql/invalid-nullable-output-type
+  errors?: FieldError[];
 
   @Field(() => User, { nullable: true })
-  user?: User | null;
+  // eslint-disable-next-line type-graphql/invalid-nullable-output-type
+  user?: User;
 }
 
 @Resolver()
 class UserResolver {
   @Query(() => User, { nullable: true })
-  async me(@Ctx() { em, req }: MyContext): Promise<User | null> {
+  // eslint-disable-next-line type-graphql/invalid-nullable-output-type
+  async me(@Ctx() { req }: MyContext): Promise<User | undefined> {
     if (!req.session.userId) {
-      return null;
+      return undefined;
     }
 
-    const user = await em.findOne(User, { id: req.session.userId });
-
-    return user;
+    return User.findOne(req.session.userId);
   }
 
   @Mutation(() => UserResponse)
   async register(
     @Arg('options') options: UsernamePasswordInput,
-    @Ctx() { em, req }: MyContext
+    @Ctx() { req }: MyContext
   ): Promise<UserResponse> {
     const errors = validateRegister(options);
     if (errors) {
@@ -60,13 +61,25 @@ class UserResolver {
     }
 
     const hashedPassword = await argon2.hash(options.password);
-    const user = em.create(User, {
-      username: options.username,
-      email: options.email,
-      password: hashedPassword,
-    });
+    let user;
     try {
-      await em.persistAndFlush(user);
+      // const result = await getConnection()
+      //   .createQueryBuilder()
+      //   .insert()
+      //   .into(User)
+      //   .values({
+      //     username: options.username,
+      //     email: options.email,
+      //     password: hashedPassword,
+      //   })
+      //   .returning('*')
+      //   .execute();
+      // [user] = result.generatedMaps;
+      user = await User.create({
+        username: options.username,
+        email: options.email,
+        password: hashedPassword,
+      }).save();
     } catch ({ code }) {
       if (code === '23505') {
         return {
@@ -80,7 +93,9 @@ class UserResolver {
       }
     }
 
-    req.session.userId = user.id;
+    if (user) {
+      req.session.userId = user.id;
+    }
 
     return { user };
   }
@@ -89,10 +104,12 @@ class UserResolver {
   async login(
     @Arg('usernameOrEmail') usernameOrEmail: string,
     @Arg('password') password: string,
-    @Ctx() { em, req }: MyContext
+    @Ctx() { req }: MyContext
   ): Promise<UserResponse> {
     const searchField = usernameOrEmail.includes('@') ? 'email' : 'username';
-    const user = await em.findOne(User, { [searchField]: usernameOrEmail });
+    const user = await User.findOne({
+      where: { [searchField]: usernameOrEmail },
+    });
 
     if (!user) {
       return {
@@ -129,7 +146,6 @@ class UserResolver {
         res.clearCookie(COOKIE_NAME);
 
         if (err) {
-          console.log(err);
           resolve(false);
           return;
         }
@@ -142,9 +158,9 @@ class UserResolver {
   @Mutation(() => Boolean)
   async forgotPassword(
     @Arg('email') email: string,
-    @Ctx() { em, redis }: MyContext
+    @Ctx() { redis }: MyContext
   ): Promise<boolean> {
-    const user = await em.findOne(User, { email });
+    const user = await User.findOne({ where: { email } });
     if (!user) {
       return true;
     }
@@ -167,7 +183,7 @@ class UserResolver {
   async changePassword(
     @Arg('token') token: string,
     @Arg('newPassword') newPassword: string,
-    @Ctx() { em, redis, req }: MyContext
+    @Ctx() { redis, req }: MyContext
   ): Promise<UserResponse> {
     if (newPassword.length <= 2) {
       return {
@@ -181,8 +197,8 @@ class UserResolver {
     }
 
     const key = FORGET_PASSWORD_PREFIX + token;
-    const userId = await redis.get(key);
-    if (!userId) {
+    const userIdRecord = await redis.get(key);
+    if (!userIdRecord) {
       return {
         errors: [
           {
@@ -193,7 +209,8 @@ class UserResolver {
       };
     }
 
-    const user = await em.findOne(User, { id: parseInt(userId, 10) });
+    const userId = parseInt(userIdRecord, 10);
+    const user = await User.findOne(userId);
 
     if (!user) {
       return {
@@ -206,8 +223,12 @@ class UserResolver {
       };
     }
 
-    user.password = await argon2.hash(newPassword);
-    await em.persistAndFlush(user);
+    await User.update(
+      { id: user.id },
+      {
+        password: await argon2.hash(newPassword),
+      }
+    );
 
     await redis.del(key);
 
